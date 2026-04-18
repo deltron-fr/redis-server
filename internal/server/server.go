@@ -31,11 +31,15 @@ func NewServer() *Server {
 	}
 
 	s.Commands = map[string]CommandHandler{
-		"ECHO":  s.echoHandler,
-		"PING":  s.pingHandler,
-		"SET":   s.setHandler,
-		"GET":   s.getHandler,
-		"RPUSH": s.rPushHandler,
+		"ECHO":   s.echoHandler,
+		"PING":   s.pingHandler,
+		"SET":    s.setHandler,
+		"GET":    s.getHandler,
+		"RPUSH":  s.rPushHandler,
+		"LPUSH":  s.lPushHandler,
+		"LRANGE": s.lRangeHandler,
+		"LLEN":   s.lLenHandler,
+		"LPOP":   s.lPopHandler,
 	}
 
 	return s

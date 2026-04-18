@@ -1,6 +1,9 @@
 package server
 
-import "fmt"
+import (
+	"fmt"
+	"slices"
+)
 
 func (s *Server) rPushHandler(cmd Command) (string, error) {
 	if len(cmd.Args) < 2 {
@@ -20,4 +23,21 @@ func (s *Server) rPushHandler(cmd Command) (string, error) {
 	s.Mu.Unlock()
 
 	return fmt.Sprintf(":%d\r\n", length), nil
+}
+
+func (s *Server) lPushHandler(cmd Command) (string, error) {
+	if len(cmd.Args) < 2 {
+		return "", fmt.Errorf("LPUSH command requires at least two arguments")
+	}
+
+	key := cmd.Args[0]
+	slices.Reverse(cmd.Args[1:])
+
+	s.Mu.Lock()
+	defer s.Mu.Unlock()
+
+	newValue := append(cmd.Args[1:], s.ListStore[key]...)
+	s.ListStore[key] = newValue
+
+	return fmt.Sprintf(":%d\r\n", len(s.ListStore[key])), nil
 }
