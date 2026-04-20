@@ -7,16 +7,18 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/deltron-fr/redis-server/internal/parser"
 )
 
 type Server struct {
-	Store     map[string]ValueStore
-	ListStore map[string][]string
-	Commands  map[string]CommandHandler
-	Mu        sync.RWMutex
+	Store       map[string]ValueStore
+	ListStore   map[string][]string
+	Commands    map[string]CommandHandler
+	Mu          sync.RWMutex
+	WaiterQueue chan *Waiter
 }
 
 type ValueStore struct {
@@ -24,10 +26,18 @@ type ValueStore struct {
 	Expiry *time.Time
 }
 
+type Waiter struct {
+	Ch      chan struct{}
+	Expired atomic.Bool
+}
+
 func NewServer() *Server {
+	waiterQ := make(chan *Waiter, 100)
+
 	s := &Server{
-		Store:     make(map[string]ValueStore),
-		ListStore: make(map[string][]string),
+		Store:       make(map[string]ValueStore),
+		ListStore:   make(map[string][]string),
+		WaiterQueue: waiterQ,
 	}
 
 	s.Commands = map[string]CommandHandler{

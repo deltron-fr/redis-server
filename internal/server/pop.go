@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/deltron-fr/redis-server/internal/parser"
 )
@@ -44,4 +45,52 @@ func (s *Server) lPopHandler(cmd Command) (string, error) {
 	s.ListStore[listKey] = s.ListStore[listKey][parsedIdx:]
 
 	return parser.ArrayOutputParser(elements), nil
+}
+
+func (s *Server) bLPopHandler(cmd Command) (string, error) {
+	if len(cmd.Args) != 2 {
+		return "", fmt.Errorf("BLPOP command requires exactly three arguments")
+	}
+
+	key := cmd.Args[0]
+	timerInput := cmd.Args[1]
+
+	timer, err := time.ParseDuration(timerInput + "s")
+	if err != nil {
+		return "", fmt.Errorf("couldn't parse timeout value: %v", err)
+	}
+
+	if timer < 0 {
+		return "", fmt.Errorf("BLPOP requires a positive integer")
+	}
+
+	s.Mu.Lock()
+	for {
+		value, exists := s.ListStore[key]
+		if exists && len(value) > 0 {
+			result := []string{key, value[0]}
+			s.ListStore[key] = value[1:]
+			s.Mu.Unlock()
+			return parser.ArrayOutputParser(result), nil
+		}
+
+		s.Mu.Unlock()
+
+		w := &Waiter{Ch: make(chan struct{})}
+		s.WaiterQueue <- w
+
+		if timer == 0 {
+			<-w.Ch
+		} else {
+			select {
+			case <-w.Ch:
+
+			case <-time.After(timer):
+				w.Expired.Store(true)
+				return "*-1\r\n", nil
+			}
+		}
+
+		s.Mu.Lock()
+	}
 }

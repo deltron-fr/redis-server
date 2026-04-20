@@ -18,4 +18,3 @@ func (s *Server) lLenHandler(cmd Command) (string, error) {
 
 	return fmt.Sprintf(":%d\r\n", len(s.ListStore[cmd.Args[0]])), nil
 }
-
