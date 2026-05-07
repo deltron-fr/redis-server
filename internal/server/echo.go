@@ -14,6 +14,6 @@ func (s *Server) echoHandler(cmd Command) (string, error) {
 	case 1:
 		return parser.BulkStringOutputParser(cmd.Args[0]), nil
 	default:
-		return parser.ArrayOutputParser(cmd.Args), nil
+		return parser.RESPOutputParser(cmd.Args), nil
 	}
 }

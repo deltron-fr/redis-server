@@ -52,5 +52,5 @@ func (s *Server) lRangeHandler(cmd Command) (string, error) {
 		return "*0\r\n", nil // Return empty array if start index is greater than stop index
 	}
 
-	return parser.ArrayOutputParser(value[start : stop+1]), nil
+	return parser.RESPOutputParser(value[start : stop+1]), nil
 }

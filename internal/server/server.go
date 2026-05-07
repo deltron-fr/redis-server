@@ -16,6 +16,7 @@ import (
 type Server struct {
 	Store       map[string]ValueStore
 	ListStore   map[string][]string
+	StreamStore map[string][]StreamEntry
 	Commands    map[string]CommandHandler
 	Mu          sync.RWMutex
 	WaiterQueue chan *Waiter
@@ -31,12 +32,18 @@ type Waiter struct {
 	Expired atomic.Bool
 }
 
+type StreamEntry struct {
+	ID     string
+	Fields map[string]string
+}
+
 func NewServer() *Server {
 	waiterQ := make(chan *Waiter, 100)
 
 	s := &Server{
 		Store:       make(map[string]ValueStore),
 		ListStore:   make(map[string][]string),
+		StreamStore: make(map[string][]StreamEntry),
 		WaiterQueue: waiterQ,
 	}
 
@@ -50,6 +57,10 @@ func NewServer() *Server {
 		"LRANGE": s.lRangeHandler,
 		"LLEN":   s.lLenHandler,
 		"LPOP":   s.lPopHandler,
+		"BLPOP":  s.bLPopHandler,
+		"TYPE":  s.typeHandler,
+		"XADD":   s.xaddHandler,
+		"XRANGE": s.xRangeHandler,
 	}
 
 	return s

@@ -44,7 +44,7 @@ func (s *Server) lPopHandler(cmd Command) (string, error) {
 
 	s.ListStore[listKey] = s.ListStore[listKey][parsedIdx:]
 
-	return parser.ArrayOutputParser(elements), nil
+	return parser.RESPOutputParser(elements), nil
 }
 
 func (s *Server) bLPopHandler(cmd Command) (string, error) {
@@ -71,7 +71,7 @@ func (s *Server) bLPopHandler(cmd Command) (string, error) {
 			result := []string{key, value[0]}
 			s.ListStore[key] = value[1:]
 			s.Mu.Unlock()
-			return parser.ArrayOutputParser(result), nil
+			return parser.RESPOutputParser(result), nil
 		}
 
 		s.Mu.Unlock()

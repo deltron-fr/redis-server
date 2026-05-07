@@ -26,8 +26,3 @@ func BulkStringInputParser(data string) ([]string, error) {
 
 	return []string{lines[1]}, nil
 }
-
-func BulkStringOutputParser(data string) string {
-	length := len(data)
-	return fmt.Sprintf("$%d\r\n%s\r\n", length, data)
-}
