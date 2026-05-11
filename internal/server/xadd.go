@@ -63,6 +63,16 @@ func (s *Server) xaddHandler(cmd Command) (string, error) {
 
 	s.StreamStore[key] = append(s.StreamStore[key], entry)
 
+	go func() {
+		for {
+			waiter := <-s.WaiterQueueStream
+			if !waiter.Expired.Load() {
+				waiter.Ch <- struct{}{}
+				break
+			}
+		}
+	}()
+
 	return parser.BulkStringOutputParser(newID), nil
 }
 

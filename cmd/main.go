@@ -18,6 +18,7 @@ func main() {
 	}
 
 	s := server.NewServer()
+	fmt.Println("started server")
 
 	for {
 		conn, err := l.Accept()
@@ -25,6 +26,7 @@ func main() {
 			fmt.Println("Error accepting connection: ", err.Error())
 			os.Exit(1)
 		}
+		fmt.Println("connection accepted...")
 
 		go s.HandleConn(conn)
 	}

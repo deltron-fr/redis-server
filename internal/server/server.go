@@ -14,12 +14,13 @@ import (
 )
 
 type Server struct {
-	Store       map[string]ValueStore
-	ListStore   map[string][]string
-	StreamStore map[string][]StreamEntry
-	Commands    map[string]CommandHandler
-	Mu          sync.RWMutex
-	WaiterQueue chan *Waiter
+	Store             map[string]ValueStore
+	ListStore         map[string][]string
+	StreamStore       map[string][]StreamEntry
+	Commands          map[string]CommandHandler
+	Mu                sync.RWMutex
+	WaiterQueueList   chan *Waiter
+	WaiterQueueStream chan *Waiter
 }
 
 type ValueStore struct {
@@ -39,12 +40,14 @@ type StreamEntry struct {
 
 func NewServer() *Server {
 	waiterQ := make(chan *Waiter, 100)
+	waiterQStream := make(chan *Waiter, 100)
 
 	s := &Server{
-		Store:       make(map[string]ValueStore),
-		ListStore:   make(map[string][]string),
-		StreamStore: make(map[string][]StreamEntry),
-		WaiterQueue: waiterQ,
+		Store:             make(map[string]ValueStore),
+		ListStore:         make(map[string][]string),
+		StreamStore:       make(map[string][]StreamEntry),
+		WaiterQueueList:   waiterQ,
+		WaiterQueueStream: waiterQStream,
 	}
 
 	s.Commands = map[string]CommandHandler{
@@ -58,9 +61,10 @@ func NewServer() *Server {
 		"LLEN":   s.lLenHandler,
 		"LPOP":   s.lPopHandler,
 		"BLPOP":  s.bLPopHandler,
-		"TYPE":  s.typeHandler,
+		"TYPE":   s.typeHandler,
 		"XADD":   s.xaddHandler,
 		"XRANGE": s.xRangeHandler,
+		"XREAD":  s.xReadHandler,
 	}
 
 	return s

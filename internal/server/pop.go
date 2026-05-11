@@ -77,7 +77,7 @@ func (s *Server) bLPopHandler(cmd Command) (string, error) {
 		s.Mu.Unlock()
 
 		w := &Waiter{Ch: make(chan struct{})}
-		s.WaiterQueue <- w
+		s.WaiterQueueList <- w
 
 		if timer == 0 {
 			<-w.Ch

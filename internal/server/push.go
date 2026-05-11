@@ -12,6 +12,7 @@ func (s *Server) rPushHandler(cmd Command) (string, error) {
 
 	key := cmd.Args[0]
 	var length int
+
 	s.Mu.Lock()
 	if value, exists := s.ListStore[key]; !exists {
 		s.ListStore[key] = cmd.Args[1:]
@@ -21,6 +22,16 @@ func (s *Server) rPushHandler(cmd Command) (string, error) {
 		length = len(s.ListStore[key])
 	}
 	s.Mu.Unlock()
+
+	go func() {
+		for {
+			waiter := <-s.WaiterQueueList // block until someone is waiting
+			if !waiter.Expired.Load() {
+				waiter.Ch <- struct{}{}
+				break
+			}
+		}
+	}()
 
 	return fmt.Sprintf(":%d\r\n", length), nil
 }

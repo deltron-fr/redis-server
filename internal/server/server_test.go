@@ -453,8 +453,32 @@ func TestXRangeSubset(t *testing.T) {
 	mustRun(t, s, "XADD", "stream", "2-1", "k", "b")
 	mustRun(t, s, "XADD", "stream", "3-1", "k", "c")
 
-	got := mustRun(t, s, "XRANGE", "stream", "1-1", "2-1")
+	got := mustRun(t, s, "XRANGE", "stream", "2-1", "3-1")
 	if !strings.HasPrefix(got, "*2\r\n") {
 		t.Fatalf("XRANGE subset: want 2 entries, got %q", got)
+	}
+}
+
+func TestXRangeStartWithHyphen(t *testing.T) {
+	s := newTestServer()
+	mustRun(t, s, "XADD", "stream", "1-1", "name", "alice")
+	mustRun(t, s, "XADD", "stream", "2-1", "name", "bob")
+	mustRun(t, s, "XADD", "stream", "3-1", "name", "charlie")
+
+	got := mustRun(t, s, "XRANGE", "stream", "-", "3-1")
+	if !strings.HasPrefix(got, "*3\r\n") {
+		t.Fatalf("XRANGE start hyphen: want 3 entries, got %q", got)
+	}
+}
+
+func TestXRangeStopWithAsterisk(t *testing.T) {
+	s := newTestServer()
+	mustRun(t, s, "XADD", "stream", "1-1", "name", "alice")
+	mustRun(t, s, "XADD", "stream", "2-1", "name", "bob")
+	mustRun(t, s, "XADD", "stream", "3-1", "name", "charlie")
+
+	got := mustRun(t, s, "XRANGE", "stream", "1-1", "+")
+	if !strings.HasPrefix(got, "*3\r\n") {
+		t.Fatalf("XRANGE stop asterisk: want 3 entries, got %q", got)
 	}
 }

@@ -15,12 +15,23 @@ func (s *Server) xRangeHandler(cmd Command) (string, error) {
 
 	s.Mu.RLock()
 	values, ok := s.StreamStore[key]
-	if !ok {
-		return "", fmt.Errorf("this key does not exist")
-	}
 	s.Mu.RUnlock()
 
+	fmt.Println("reached here?", ok)
+
+	if !ok {
+		return "*0\r\n", nil
+	}
+
 	start, stop := cmd.Args[1], cmd.Args[2]
+	if start == "-" && len(values) >= 1 {
+		start = values[0].ID
+	}
+
+	if stop == "+" && len(values) >= 2 {
+		stop = values[len(values)-1].ID
+	}
+
 	var streamEntries []StreamEntry
 
 	started := false
@@ -40,6 +51,10 @@ func (s *Server) xRangeHandler(cmd Command) (string, error) {
 			streamEntries = append(streamEntries, v)
 			break
 		}
+	}
+
+	if len(streamEntries) == 0 {
+		return "*0/r/n", nil
 	}
 
 	var results []any
