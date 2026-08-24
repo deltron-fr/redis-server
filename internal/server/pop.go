@@ -49,7 +49,7 @@ func (s *Server) lPopHandler(cmd Command) (string, error) {
 
 func (s *Server) bLPopHandler(cmd Command) (string, error) {
 	if len(cmd.Args) != 2 {
-		return "", fmt.Errorf("BLPOP command requires exactly three arguments")
+		return "", fmt.Errorf("BLPOP command requires exactly two arguments")
 	}
 
 	key := cmd.Args[0]

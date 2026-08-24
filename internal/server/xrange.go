@@ -17,8 +17,6 @@ func (s *Server) xRangeHandler(cmd Command) (string, error) {
 	values, ok := s.StreamStore[key]
 	s.Mu.RUnlock()
 
-	fmt.Println("reached here?", ok)
-
 	if !ok {
 		return "*0\r\n", nil
 	}

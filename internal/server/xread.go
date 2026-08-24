@@ -6,6 +6,8 @@ import (
 	"github.com/deltron-fr/redis-server/internal/parser"
 )
 
+
+// TODO: current implementation returns nil even if a key for another stream exists
 func (s *Server) xReadHandler(cmd Command) (string, error) {
 	parts := cmd.Args[1:]
 	if len(parts)%2 != 0 {
@@ -20,7 +22,6 @@ func (s *Server) xReadHandler(cmd Command) (string, error) {
 	var results []any
 
 	for i, key := range keys {
-		fmt.Println("key: ", key)
 		s.Mu.Lock()
 		entries, ok := s.StreamStore[key]
 		s.Mu.Unlock()
@@ -28,7 +29,6 @@ func (s *Server) xReadHandler(cmd Command) (string, error) {
 		if !ok {
 			return "$-1\r\n", nil // return nil if key doesn't exist
 		}
-		fmt.Println("...")
 
 		id := ids[i]
 		var idx int

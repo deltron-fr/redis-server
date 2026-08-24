@@ -65,6 +65,7 @@ func NewServer() *Server {
 		"XADD":   s.xaddHandler,
 		"XRANGE": s.xRangeHandler,
 		"XREAD":  s.xReadHandler,
+		"INCR":   s.incrHandler,
 	}
 
 	return s
