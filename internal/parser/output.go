@@ -41,3 +41,15 @@ func BulkStringOutputParser(data string) string {
 	length := len(data)
 	return fmt.Sprintf("$%d\r\n%s\r\n", length, data)
 }
+
+func ErrorOutputParser(data string) string {
+	return fmt.Sprintf("-ERR %s\r\n", data)
+}
+
+func SimpleStringOutputParser(data string) string {
+	return fmt.Sprintf("+%s\r\n", data)
+}
+
+func IntegerOutputParser(data int) string {
+	return fmt.Sprintf(":%d\r\n", data)
+}

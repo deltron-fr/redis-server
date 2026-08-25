@@ -8,7 +8,7 @@ import (
 
 
 // TODO: current implementation returns nil even if a key for another stream exists
-func (s *Server) xReadHandler(cmd Command) (string, error) {
+func (s *Server) xReadHandler(clientCtx *Client, cmd Command) (string, error) {
 	parts := cmd.Args[1:]
 	if len(parts)%2 != 0 {
 		return "", fmt.Errorf("invalid number of arguments")

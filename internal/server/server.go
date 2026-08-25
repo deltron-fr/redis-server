@@ -13,6 +13,13 @@ import (
 	"github.com/deltron-fr/redis-server/internal/parser"
 )
 
+type State int
+
+const (
+	StateNormal State = iota
+	StateTransaction
+)
+
 type Server struct {
 	Store             map[string]ValueStore
 	ListStore         map[string][]string
@@ -66,6 +73,8 @@ func NewServer() *Server {
 		"XRANGE": s.xRangeHandler,
 		"XREAD":  s.xReadHandler,
 		"INCR":   s.incrHandler,
+		"MULTI":  s.multiHandler,
+		"EXEC":   s.execHandler,
 	}
 
 	return s
@@ -75,6 +84,8 @@ func NewServer() *Server {
 // registered command handler, and writes the response back.
 func (s *Server) HandleConn(conn net.Conn) {
 	defer conn.Close()
+
+	clientCtx := &Client{ClientState: StateNormal}
 
 	buf := make([]byte, 4096)
 	for {
@@ -102,7 +113,38 @@ func (s *Server) HandleConn(conn net.Conn) {
 			continue
 		}
 
-		resp, err := handler(Command{Args: args[1:]})
+		if name == "EXEC" && clientCtx.ClientState == StateTransaction {
+			resp, err := handler(clientCtx, Command{
+				Handler: handler,
+				Args:    args[1:],
+			})
+			if err != nil {
+				writeErr(conn, err)
+				continue
+			}
+
+			if _, err := conn.Write([]byte(resp)); err != nil {
+				return
+			}
+
+			continue
+		}
+
+		if clientCtx.ClientState == StateTransaction {
+			clientCtx.TxQueue = append(clientCtx.TxQueue, Command{
+				Handler: handler,
+				Args:    args[1:],
+			})
+			if _, err := conn.Write([]byte(parser.BulkStringOutputParser("QUEUED"))); err != nil {
+				return
+			}
+			continue
+		}
+
+		resp, err := handler(clientCtx, Command{
+			Handler: handler,
+			Args:    args[1:],
+		})
 		if err != nil {
 			writeErr(conn, err)
 			continue

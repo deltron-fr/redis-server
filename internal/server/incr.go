@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-func (s *Server) incrHandler(cmd Command) (string, error) {
+func (s *Server) incrHandler(clientCtx *Client, cmd Command) (string, error) {
 	if len(cmd.Args) != 1 {
 		return "", fmt.Errorf("INCR requires a single argument")
 	}

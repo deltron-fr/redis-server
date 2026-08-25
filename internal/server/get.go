@@ -7,7 +7,7 @@ import (
 	"github.com/deltron-fr/redis-server/internal/parser"
 )
 
-func (s *Server) getHandler(cmd Command) (string, error) {
+func (s *Server) getHandler(clientCtx *Client, cmd Command) (string, error) {
 	if len(cmd.Args) != 1 {
 		return "", fmt.Errorf("GET command requires exactly one argument")
 	}

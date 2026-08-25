@@ -15,7 +15,7 @@ var (
 	ErrXADDIDZero     = errors.New("the ID specified in XADD must be greater than 0-0")
 )
 
-func (s *Server) xaddHandler(cmd Command) (string, error) {
+func (s *Server) xaddHandler(clientCtx *Client, cmd Command) (string, error) {
 	if len(cmd.Args) < 4 {
 		return "", fmt.Errorf("XADD requires atleast four arguments")
 	}

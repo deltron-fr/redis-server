@@ -7,7 +7,7 @@ import (
 	"github.com/deltron-fr/redis-server/internal/parser"
 )
 
-func (s *Server) typeHandler(cmd Command) (string, error) {
+func (s *Server) typeHandler(clientCtx *Client, cmd Command) (string, error) {
 	if len(cmd.Args) != 1 {
 		return "", fmt.Errorf("TYPE command requires exactly two arguments")
 	}

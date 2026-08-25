@@ -16,7 +16,7 @@ func run(t *testing.T, s *Server, name string, args ...string) (string, error) {
 	if !ok {
 		t.Fatalf("unknown command %q", name)
 	}
-	return handler(Command{Args: args})
+	return handler(&Client{}, Command{Args: args})
 }
 
 func mustRun(t *testing.T, s *Server, name string, args ...string) string {

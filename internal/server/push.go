@@ -3,9 +3,11 @@ package server
 import (
 	"fmt"
 	"slices"
+
+	"github.com/deltron-fr/redis-server/internal/parser"
 )
 
-func (s *Server) rPushHandler(cmd Command) (string, error) {
+func (s *Server) rPushHandler(clientCtx *Client, cmd Command) (string, error) {
 	if len(cmd.Args) < 2 {
 		return "", fmt.Errorf("RPUSH command requires at least two arguments")
 	}
@@ -33,10 +35,10 @@ func (s *Server) rPushHandler(cmd Command) (string, error) {
 		}
 	}()
 
-	return fmt.Sprintf(":%d\r\n", length), nil
+	return parser.IntegerOutputParser(length), nil
 }
 
-func (s *Server) lPushHandler(cmd Command) (string, error) {
+func (s *Server) lPushHandler(clientCtx *Client, cmd Command) (string, error) {
 	if len(cmd.Args) < 2 {
 		return "", fmt.Errorf("LPUSH command requires at least two arguments")
 	}
@@ -50,5 +52,5 @@ func (s *Server) lPushHandler(cmd Command) (string, error) {
 	newValue := append(cmd.Args[1:], s.ListStore[key]...)
 	s.ListStore[key] = newValue
 
-	return fmt.Sprintf(":%d\r\n", len(s.ListStore[key])), nil
+	return parser.IntegerOutputParser(len(s.ListStore[key])), nil
 }

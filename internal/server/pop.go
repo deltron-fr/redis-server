@@ -7,7 +7,7 @@ import (
 	"github.com/deltron-fr/redis-server/internal/parser"
 )
 
-func (s *Server) lPopHandler(cmd Command) (string, error) {
+func (s *Server) lPopHandler(clientCtx *Client, cmd Command) (string, error) {
 	if len(cmd.Args) > 2 {
 		return "", fmt.Errorf("LPOP command requires at most two arguments")
 	}
@@ -47,7 +47,7 @@ func (s *Server) lPopHandler(cmd Command) (string, error) {
 	return parser.RESPOutputParser(elements), nil
 }
 
-func (s *Server) bLPopHandler(cmd Command) (string, error) {
+func (s *Server) bLPopHandler(clientCtx *Client, cmd Command) (string, error) {
 	if len(cmd.Args) != 2 {
 		return "", fmt.Errorf("BLPOP command requires exactly two arguments")
 	}

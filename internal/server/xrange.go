@@ -6,7 +6,7 @@ import (
 	"github.com/deltron-fr/redis-server/internal/parser"
 )
 
-func (s *Server) xRangeHandler(cmd Command) (string, error) {
+func (s *Server) xRangeHandler(clientCtx *Client, cmd Command) (string, error) {
 	if len(cmd.Args) != 3 {
 		return "", fmt.Errorf("invalid number of arguments")
 	}

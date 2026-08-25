@@ -6,7 +6,7 @@ import (
 	"github.com/deltron-fr/redis-server/internal/parser"
 )
 
-func (s *Server) lRangeHandler(cmd Command) (string, error) {
+func (s *Server) lRangeHandler(clientCtx *Client, cmd Command) (string, error) {
 	if len(cmd.Args) != 3 {
 		return "", fmt.Errorf("LRANGE command requires exactly three arguments")
 	}
