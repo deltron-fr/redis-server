@@ -20,5 +20,5 @@ func (s *Server) multiHandler(clientCtx *Client, cmd Command) (string, error) {
 
 	clientCtx.ClientState = StateTransaction
 
-	return parser.BulkStringOutputParser("OK"), nil
+	return parser.SimpleStringOutputParser("OK"), nil
 }

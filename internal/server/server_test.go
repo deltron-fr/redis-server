@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/deltron-fr/redis-server/internal/parser"
 )
 
 func newTestServer() *Server {
@@ -26,6 +28,36 @@ func mustRun(t *testing.T, s *Server, name string, args ...string) string {
 		t.Fatalf("%s %v: unexpected error: %v", name, args, err)
 	}
 	return resp
+}
+
+func testIsTxCommand(cmdName string) bool {
+	return cmdName == "EXEC" || cmdName == "DISCARD" || cmdName == "WATCH" ||
+		cmdName == "MULTI" || cmdName == "UNWATCH"
+}
+
+func runWithClient(t *testing.T, s *Server, client *Client, name string, args ...string) string {
+	t.Helper()
+	resp, err := runWithClientErr(t, s, client, name, args...)
+	if err != nil {
+		t.Fatalf("%s %v: unexpected error: %v", name, args, err)
+	}
+	return resp
+}
+
+func runWithClientErr(t *testing.T, s *Server, client *Client, name string, args ...string) (string, error) {
+	t.Helper()
+	handler, ok := s.Commands[name]
+	if !ok {
+		t.Fatalf("unknown command %q", name)
+	}
+	if client.ClientState == StateTransaction && !testIsTxCommand(name) {
+		client.TxQueue = append(client.TxQueue, Command{
+			Handler: handler,
+			Args:    args,
+		})
+		return parser.BulkStringOutputParser("QUEUED"), nil
+	}
+	return handler(client, Command{Args: args})
 }
 
 // ── SET / GET ──────────────────────────────────────────────────────────
@@ -480,5 +512,430 @@ func TestXRangeStopWithAsterisk(t *testing.T) {
 	got := mustRun(t, s, "XRANGE", "stream", "1-1", "+")
 	if !strings.HasPrefix(got, "*3\r\n") {
 		t.Fatalf("XRANGE stop asterisk: want 3 entries, got %q", got)
+	}
+}
+
+// ── XREAD ──────────────────────────────────────────────────────────────
+
+func TestXReadSingleStream(t *testing.T) {
+	s := newTestServer()
+	mustRun(t, s, "XADD", "mystream", "1-1", "name", "alice")
+
+	// RESP2: array(1)[ array(2)[ bulk("mystream"),
+	//   array(1)[ array(2)[ bulk("1-1"), array(2)[bulk("name"), bulk("alice")] ] ] ] ]
+	want := "*1\r\n" +
+		"*2\r\n$8\r\nmystream\r\n" +
+		"*1\r\n*2\r\n$3\r\n1-1\r\n" +
+		"*2\r\n$4\r\nname\r\n$5\r\nalice\r\n"
+
+	got := mustRun(t, s, "XREAD", "STREAMS", "mystream", "0-0")
+	if got != want {
+		t.Fatalf("XREAD single stream:\nwant: %q\ngot:  %q", want, got)
+	}
+}
+
+func TestXReadMultipleStreams(t *testing.T) {
+	s := newTestServer()
+	mustRun(t, s, "XADD", "stream1", "1-1", "k", "a")
+	mustRun(t, s, "XADD", "stream2", "2-1", "k", "b")
+
+	got := mustRun(t, s, "XREAD", "STREAMS", "stream1", "stream2", "0-0", "0-0")
+	if !strings.HasPrefix(got, "*2\r\n") {
+		t.Fatalf("XREAD multi stream: want 2 streams, got %q", got)
+	}
+	if !strings.Contains(got, "$7\r\nstream1\r\n") || !strings.Contains(got, "$7\r\nstream2\r\n") {
+		t.Fatalf("XREAD multi stream: want both stream names, got %q", got)
+	}
+	if !strings.Contains(got, "$1\r\na\r\n") || !strings.Contains(got, "$1\r\nb\r\n") {
+		t.Fatalf("XREAD multi stream: want entries from both streams, got %q", got)
+	}
+}
+
+func TestXReadNonExistentKey(t *testing.T) {
+	s := newTestServer()
+
+	got := mustRun(t, s, "XREAD", "STREAMS", "nosuch", "0-0")
+	if got != "*-1\r\n" {
+		t.Fatalf("XREAD nonexistent: want nil array, got %q", got)
+	}
+}
+
+func TestXReadFiltersById(t *testing.T) {
+	s := newTestServer()
+	mustRun(t, s, "XADD", "stream", "1-1", "k", "v1")
+	mustRun(t, s, "XADD", "stream", "2-1", "k", "v2")
+	mustRun(t, s, "XADD", "stream", "3-1", "k", "v3")
+
+	// Only the entry strictly greater than 2-1 should be returned.
+	want := "*1\r\n" +
+		"*2\r\n$6\r\nstream\r\n" +
+		"*1\r\n*2\r\n$3\r\n3-1\r\n" +
+		"*2\r\n$1\r\nk\r\n$2\r\nv3\r\n"
+
+	got := mustRun(t, s, "XREAD", "STREAMS", "stream", "2-1")
+	if got != want {
+		t.Fatalf("XREAD filter by ID:\nwant: %q\ngot:  %q", want, got)
+	}
+}
+
+// ── INCR ───────────────────────────────────────────────────────────────
+
+func TestIncrNewKey(t *testing.T) {
+	s := newTestServer()
+
+	got := mustRun(t, s, "INCR", "counter")
+	if got != ":1\r\n" {
+		t.Fatalf("INCR new key: want :1, got %q", got)
+	}
+
+	got = mustRun(t, s, "GET", "counter")
+	if got != "$1\r\n1\r\n" {
+		t.Fatalf("INCR new key stored as string: want 1, got %q", got)
+	}
+}
+
+func TestIncrExistingKey(t *testing.T) {
+	s := newTestServer()
+	mustRun(t, s, "SET", "counter", "5")
+
+	got := mustRun(t, s, "INCR", "counter")
+	if got != ":6\r\n" {
+		t.Fatalf("INCR existing: want :6, got %q", got)
+	}
+
+	got = mustRun(t, s, "INCR", "counter")
+	if got != ":7\r\n" {
+		t.Fatalf("INCR again: want :7, got %q", got)
+	}
+}
+
+func TestIncrNonInteger(t *testing.T) {
+	s := newTestServer()
+	mustRun(t, s, "SET", "key", "abc")
+
+	_, err := run(t, s, "INCR", "key")
+	if err == nil {
+		t.Fatal("INCR non-integer: expected error")
+	}
+}
+
+func TestIncrExpiredKey(t *testing.T) {
+	s := newTestServer()
+	mustRun(t, s, "SET", "ttlkey", "10", "PX", "100")
+
+	time.Sleep(150 * time.Millisecond)
+
+	// Redis lazily deletes expired keys on access, so INCR behaves
+	// as if the key never existed and resets it to 1.
+	got := mustRun(t, s, "INCR", "ttlkey")
+	if got != ":1\r\n" {
+		t.Fatalf("INCR expired: want :1 (reset), got %q", got)
+	}
+
+	got = mustRun(t, s, "GET", "ttlkey")
+	if got != "$1\r\n1\r\n" {
+		t.Fatalf("GET after INCR on expired key: want 1, got %q", got)
+	}
+}
+
+func TestIncrWrongArgCount(t *testing.T) {
+	s := newTestServer()
+	_, err := run(t, s, "INCR")
+	if err == nil {
+		t.Fatal("INCR with 0 args: expected error")
+	}
+	_, err = run(t, s, "INCR", "a", "b")
+	if err == nil {
+		t.Fatal("INCR with 2 args: expected error")
+	}
+}
+
+// ── MULTI / EXEC ───────────────────────────────────────────────────────
+
+func TestMultiExecBasic(t *testing.T) {
+	s := newTestServer()
+	client := &Client{}
+
+	runWithClient(t, s, client, "MULTI")
+	runWithClient(t, s, client, "SET", "key", "hello")
+	runWithClient(t, s, client, "GET", "key")
+	got := runWithClient(t, s, client, "EXEC")
+
+	if !strings.HasPrefix(got, "*2\r\n") {
+		t.Fatalf("MULTI EXEC basic: want 2 results, got %q", got)
+	}
+	if !strings.Contains(got, "+OK\r\n") {
+		t.Fatalf("MULTI EXEC basic: want SET OK, got %q", got)
+	}
+	if !strings.Contains(got, "$5\r\nhello\r\n") {
+		t.Fatalf("MULTI EXEC basic: want GET hello, got %q", got)
+	}
+}
+
+func TestMultiRejectsArgs(t *testing.T) {
+	s := newTestServer()
+	_, err := run(t, s, "MULTI", "extra")
+	if err == nil {
+		t.Fatal("MULTI with args: expected error")
+	}
+}
+
+func TestMultiRejectsNesting(t *testing.T) {
+	s := newTestServer()
+	client := &Client{}
+
+	runWithClient(t, s, client, "MULTI")
+	_, err := runWithClientErr(t, s, client, "MULTI")
+	if err == nil {
+		t.Fatal("nested MULTI: expected error")
+	}
+
+	runWithClient(t, s, client, "EXEC")
+}
+
+func TestExecWithoutMulti(t *testing.T) {
+	s := newTestServer()
+	client := &Client{}
+
+	_, err := runWithClientErr(t, s, client, "EXEC")
+	if err == nil {
+		t.Fatal("EXEC without MULTI: expected error")
+	}
+}
+
+func TestMultiExecWithIncr(t *testing.T) {
+	s := newTestServer()
+	client := &Client{}
+
+	runWithClient(t, s, client, "SET", "counter", "10")
+	runWithClient(t, s, client, "MULTI")
+	runWithClient(t, s, client, "INCR", "counter")
+	runWithClient(t, s, client, "INCR", "counter")
+	got := runWithClient(t, s, client, "EXEC")
+
+	if !strings.HasPrefix(got, "*2\r\n") {
+		t.Fatalf("MULTI EXEC INCR: want 2 results, got %q", got)
+	}
+
+	got = mustRun(t, s, "GET", "counter")
+	if got != "$2\r\n12\r\n" {
+		t.Fatalf("MULTI EXEC INCR: want 12, got %q", got)
+	}
+}
+
+// ── WATCH / UNWATCH ────────────────────────────────────────────────────
+
+func TestWatchBasicNoConflict(t *testing.T) {
+	s := newTestServer()
+	client := &Client{}
+
+	mustRun(t, s, "SET", "k", "1")
+	runWithClient(t, s, client, "WATCH", "k")
+	runWithClient(t, s, client, "MULTI")
+	runWithClient(t, s, client, "SET", "k", "2")
+	got := runWithClient(t, s, client, "EXEC")
+
+	// No external modification between WATCH and EXEC — transaction commits.
+	if !strings.HasPrefix(got, "*1\r\n") {
+		t.Fatalf("WATCH no conflict: want 1 queued result, got %q", got)
+	}
+
+	got = mustRun(t, s, "GET", "k")
+	if got != "$1\r\n2\r\n" {
+		t.Fatalf("WATCH no conflict: want value 2, got %q", got)
+	}
+}
+
+func TestWatchConflict(t *testing.T) {
+	s := newTestServer()
+	client := &Client{}
+
+	mustRun(t, s, "SET", "k", "1")
+
+	runWithClient(t, s, client, "WATCH", "k")
+
+	// External modification between WATCH and MULTI/EXEC.
+	mustRun(t, s, "SET", "k", "modified")
+
+	runWithClient(t, s, client, "MULTI")
+	runWithClient(t, s, client, "SET", "k", "2")
+	got := runWithClient(t, s, client, "EXEC")
+
+	// EXEC must abort because the watched key was modified.
+	if got != "*-1\r\n" {
+		t.Fatalf("WATCH conflict: want nil array, got %q", got)
+	}
+
+	got = mustRun(t, s, "GET", "k")
+	if got != "$8\r\nmodified\r\n" {
+		t.Fatalf("WATCH conflict: want external modification preserved, got %q", got)
+	}
+}
+
+func TestWatchInsideTransaction(t *testing.T) {
+	s := newTestServer()
+	client := &Client{}
+
+	runWithClient(t, s, client, "MULTI")
+	_, err := runWithClientErr(t, s, client, "WATCH", "k")
+	if err == nil {
+		t.Fatal("WATCH inside MULTI: expected error")
+	}
+}
+
+func TestWatchRejectsNoArgs(t *testing.T) {
+	s := newTestServer()
+	_, err := run(t, s, "WATCH")
+	if err == nil {
+		t.Fatal("WATCH with 0 args: expected error")
+	}
+}
+
+func TestUnwatchBasic(t *testing.T) {
+	s := newTestServer()
+	client := &Client{}
+
+	runWithClient(t, s, client, "WATCH", "k")
+	got := runWithClient(t, s, client, "UNWATCH")
+	if got != "+OK\r\n" {
+		t.Fatalf("UNWATCH: want +OK, got %q", got)
+	}
+
+	// Unwatched — modifying k must not abort the transaction.
+	mustRun(t, s, "SET", "k", "1")
+	runWithClient(t, s, client, "MULTI")
+	runWithClient(t, s, client, "SET", "k", "2")
+	got = runWithClient(t, s, client, "EXEC")
+
+	if !strings.HasPrefix(got, "*1\r\n") {
+		t.Fatalf("UNWATCH then SET: want transaction committed, got %q", got)
+	}
+}
+
+func TestWatchMultipleKeys(t *testing.T) {
+	s := newTestServer()
+	client := &Client{}
+
+	mustRun(t, s, "SET", "a", "1")
+	mustRun(t, s, "SET", "b", "1")
+
+	runWithClient(t, s, client, "WATCH", "a", "b")
+
+	// Modify only b — transaction aborts because any watched key changed.
+	mustRun(t, s, "SET", "b", "modified")
+
+	runWithClient(t, s, client, "MULTI")
+	runWithClient(t, s, client, "SET", "a", "2")
+	got := runWithClient(t, s, client, "EXEC")
+
+	if got != "*-1\r\n" {
+		t.Fatalf("WATCH multi-key: want nil array, got %q", got)
+	}
+
+	got = mustRun(t, s, "GET", "a")
+	if got != "$1\r\n1\r\n" {
+		t.Fatalf("WATCH multi-key: want a unchanged, got %q", got)
+	}
+	got = mustRun(t, s, "GET", "b")
+	if got != "$8\r\nmodified\r\n" {
+		t.Fatalf("WATCH multi-key: want b modified, got %q", got)
+	}
+}
+
+func TestWatchMissingKey(t *testing.T) {
+	s := newTestServer()
+	client := &Client{}
+
+	// Watching a key that doesn't exist is valid.
+	runWithClient(t, s, client, "WATCH", "doesnotexist")
+	runWithClient(t, s, client, "MULTI")
+	runWithClient(t, s, client, "SET", "doesnotexist", "val")
+	got := runWithClient(t, s, client, "EXEC")
+
+	// No external modification — transaction commits.
+	if !strings.HasPrefix(got, "*1\r\n") {
+		t.Fatalf("WATCH missing key: want transaction committed, got %q", got)
+	}
+}
+
+func TestUnwatchOnExec(t *testing.T) {
+	s := newTestServer()
+	client := &Client{}
+
+	mustRun(t, s, "SET", "k", "1")
+
+	runWithClient(t, s, client, "WATCH", "k")
+	runWithClient(t, s, client, "MULTI")
+	runWithClient(t, s, client, "SET", "k", "2")
+	runWithClient(t, s, client, "EXEC")
+
+	// Watches cleared by EXEC — next cycle must start clean.
+	runWithClient(t, s, client, "MULTI")
+	runWithClient(t, s, client, "SET", "k", "3")
+	got := runWithClient(t, s, client, "EXEC")
+
+	if !strings.HasPrefix(got, "*1\r\n") {
+		t.Fatalf("EXEC clears watches: want committed, got %q", got)
+	}
+}
+
+func TestUnwatchOnDiscard(t *testing.T) {
+	s := newTestServer()
+	client := &Client{}
+
+	mustRun(t, s, "SET", "k", "1")
+
+	runWithClient(t, s, client, "WATCH", "k")
+	runWithClient(t, s, client, "MULTI")
+	runWithClient(t, s, client, "SET", "k", "2")
+	runWithClient(t, s, client, "DISCARD")
+
+	// Watches cleared by DISCARD — next cycle must start clean.
+	mustRun(t, s, "SET", "k", "3")
+	runWithClient(t, s, client, "MULTI")
+	runWithClient(t, s, client, "SET", "k", "4")
+	got := runWithClient(t, s, client, "EXEC")
+
+	if !strings.HasPrefix(got, "*1\r\n") {
+		t.Fatalf("DISCARD clears watches: want committed, got %q", got)
+	}
+}
+
+func TestWatchConflictDiscardResume(t *testing.T) {
+	s := newTestServer()
+	client := &Client{}
+
+	mustRun(t, s, "SET", "k", "1")
+
+	// First cycle: WATCH → conflict → abort.
+	runWithClient(t, s, client, "WATCH", "k")
+	mustRun(t, s, "SET", "k", "external")
+
+	runWithClient(t, s, client, "MULTI")
+	runWithClient(t, s, client, "SET", "k", "queued")
+	got := runWithClient(t, s, client, "EXEC")
+	if got != "*-1\r\n" {
+		t.Fatalf("DISCARD resume: first EXEC want nil array, got %q", got)
+	}
+
+	// Second cycle: no watch → commit.
+	runWithClient(t, s, client, "MULTI")
+	runWithClient(t, s, client, "SET", "k", "final")
+	got = runWithClient(t, s, client, "EXEC")
+	if !strings.HasPrefix(got, "*1\r\n") {
+		t.Fatalf("DISCARD resume: second EXEC want committed, got %q", got)
+	}
+
+	got = mustRun(t, s, "GET", "k")
+	if got != "$5\r\nfinal\r\n" {
+		t.Fatalf("DISCARD resume: want final, got %q", got)
+	}
+}
+
+func TestUnwatchRejectsArgs(t *testing.T) {
+	s := newTestServer()
+	_, err := run(t, s, "UNWATCH", "k")
+	if err == nil {
+		t.Fatal("UNWATCH with arg: expected error")
 	}
 }

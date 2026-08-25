@@ -21,6 +21,7 @@ func (s *Server) setHandler(clientCtx *Client, cmd Command) (string, error) {
 	switch len(cmd.Args) {
 	case 2:
 		s.Store[cmd.Args[0]] = ValueStore{Value: cmd.Args[1], Expiry: nil}
+
 	case 4:
 		expiryType := cmd.Args[2]
 		expiryTime := cmd.Args[3]
@@ -29,6 +30,11 @@ func (s *Server) setHandler(clientCtx *Client, cmd Command) (string, error) {
 			return "", fmt.Errorf("error handling expiry: %v", err)
 		}
 		s.Store[cmd.Args[0]] = ValueStore{Value: cmd.Args[1], Expiry: &parsedExpiryTime}
+	}
+
+	_, exists := s.WatchedKeys[cmd.Args[0]]
+	if exists {
+		s.WatchedKeys[cmd.Args[0]] = true
 	}
 
 	return parser.SimpleStringOutputParser("OK"), nil

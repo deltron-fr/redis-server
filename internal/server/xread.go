@@ -27,7 +27,7 @@ func (s *Server) xReadHandler(clientCtx *Client, cmd Command) (string, error) {
 		s.Mu.Unlock()
 
 		if !ok {
-			return "$-1\r\n", nil // return nil if key doesn't exist
+			return "*-1\r\n", nil // nil array if key doesn't exist
 		}
 
 		id := ids[i]
@@ -42,7 +42,7 @@ func (s *Server) xReadHandler(clientCtx *Client, cmd Command) (string, error) {
 		}
 
 		if !found {
-			return "$-1\r\n", nil
+			return "*-1\r\n", nil
 		}
 
 		newEntries := make([]StreamEntry, len(entries)-idx)

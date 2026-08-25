@@ -20,6 +20,16 @@ func (s *Server) execHandler(clientCtx *Client, cmd Command) (string, error) {
 
 	fmt.Fprintf(&results, "*%d\r\n", len(clientCtx.TxQueue))
 
+	for _, changed := range s.WatchedKeys {
+		if changed {
+			clientCtx.TxQueue = nil
+			clientCtx.ClientState = StateNormal
+			clear(s.WatchedKeys)
+
+			return "*-1\r\n", nil
+		}
+	}
+
 	for _, c := range clientCtx.TxQueue {
 		handler := c.Handler
 		output, err := handler(clientCtx, c)
@@ -33,6 +43,7 @@ func (s *Server) execHandler(clientCtx *Client, cmd Command) (string, error) {
 
 	clientCtx.TxQueue = nil
 	clientCtx.ClientState = StateNormal
+	clear(s.WatchedKeys)
 
 	return results.String(), nil
 }

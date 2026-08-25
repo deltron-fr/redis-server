@@ -25,6 +25,7 @@ type Server struct {
 	ListStore         map[string][]string
 	StreamStore       map[string][]StreamEntry
 	Commands          map[string]CommandHandler
+	WatchedKeys       map[string]bool // map stores watched key to a dirty flag(true if key has been modified)
 	Mu                sync.RWMutex
 	WaiterQueueList   chan *Waiter
 	WaiterQueueStream chan *Waiter
@@ -53,28 +54,32 @@ func NewServer() *Server {
 		Store:             make(map[string]ValueStore),
 		ListStore:         make(map[string][]string),
 		StreamStore:       make(map[string][]StreamEntry),
+		WatchedKeys:       make(map[string]bool),
 		WaiterQueueList:   waiterQ,
 		WaiterQueueStream: waiterQStream,
 	}
 
 	s.Commands = map[string]CommandHandler{
-		"ECHO":   s.echoHandler,
-		"PING":   s.pingHandler,
-		"SET":    s.setHandler,
-		"GET":    s.getHandler,
-		"RPUSH":  s.rPushHandler,
-		"LPUSH":  s.lPushHandler,
-		"LRANGE": s.lRangeHandler,
-		"LLEN":   s.lLenHandler,
-		"LPOP":   s.lPopHandler,
-		"BLPOP":  s.bLPopHandler,
-		"TYPE":   s.typeHandler,
-		"XADD":   s.xaddHandler,
-		"XRANGE": s.xRangeHandler,
-		"XREAD":  s.xReadHandler,
-		"INCR":   s.incrHandler,
-		"MULTI":  s.multiHandler,
-		"EXEC":   s.execHandler,
+		"ECHO":    s.echoHandler,
+		"PING":    s.pingHandler,
+		"SET":     s.setHandler,
+		"GET":     s.getHandler,
+		"RPUSH":   s.rPushHandler,
+		"LPUSH":   s.lPushHandler,
+		"LRANGE":  s.lRangeHandler,
+		"LLEN":    s.lLenHandler,
+		"LPOP":    s.lPopHandler,
+		"BLPOP":   s.bLPopHandler,
+		"TYPE":    s.typeHandler,
+		"XADD":    s.xaddHandler,
+		"XRANGE":  s.xRangeHandler,
+		"XREAD":   s.xReadHandler,
+		"INCR":    s.incrHandler,
+		"MULTI":   s.multiHandler,
+		"EXEC":    s.execHandler,
+		"DISCARD": s.discardHandler,
+		"WATCH":   s.watchHandler,
+		"UNWATCH": s.unwatchHandler,
 	}
 
 	return s
@@ -113,7 +118,7 @@ func (s *Server) HandleConn(conn net.Conn) {
 			continue
 		}
 
-		if name == "EXEC" && clientCtx.ClientState == StateTransaction {
+		if isTxCommand(name) && clientCtx.ClientState == StateTransaction {
 			resp, err := handler(clientCtx, Command{
 				Handler: handler,
 				Args:    args[1:],
@@ -158,4 +163,9 @@ func (s *Server) HandleConn(conn net.Conn) {
 
 func writeErr(conn net.Conn, err error) {
 	_, _ = conn.Write([]byte(fmt.Sprintf("-ERR %s\r\n", err.Error())))
+}
+
+func isTxCommand(cmdName string) bool {
+	return cmdName == "EXEC" || cmdName == "DISCARD" || cmdName == "WATCH" ||
+		cmdName == "MULTI" || cmdName == "UNWATCH"
 }

@@ -8,7 +8,7 @@ import (
 )
 
 func (s *Server) lPopHandler(clientCtx *Client, cmd Command) (string, error) {
-	if len(cmd.Args) > 2 {
+	if len(cmd.Args) > 2 || len(cmd.Args) == 0 {
 		return "", fmt.Errorf("LPOP command requires at most two arguments")
 	}
 

@@ -17,13 +17,9 @@ func (s *Server) incrHandler(clientCtx *Client, cmd Command) (string, error) {
 	defer s.Mu.Unlock()
 
 	value, ok := s.Store[key]
-	if !ok {
+	if !ok || (value.Expiry != nil && time.Now().After(*value.Expiry)) {
 		s.Store[key] = ValueStore{Value: "1", Expiry: nil}
 		return fmt.Sprintf(":%d\r\n", 1), nil
-	}
-
-	if value.Expiry != nil && time.Now().After(*value.Expiry) {
-		return "$-1\r\n", nil // nil bulk string if key has expired
 	}
 
 	parsedValue, err := strconv.Atoi(value.Value)

@@ -52,7 +52,7 @@ func (s *Server) xRangeHandler(clientCtx *Client, cmd Command) (string, error) {
 	}
 
 	if len(streamEntries) == 0 {
-		return "*0/r/n", nil
+		return "*0\r\n", nil
 	}
 
 	var results []any
