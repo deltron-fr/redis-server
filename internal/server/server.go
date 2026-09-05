@@ -1,171 +1,79 @@
 package server
 
 import (
-	"errors"
-	"fmt"
-	"io"
-	"net"
 	"strings"
 	"sync"
-	"sync/atomic"
-	"time"
-
-	"github.com/deltron-fr/redis-server/internal/parser"
-)
-
-type State int
-
-const (
-	StateNormal State = iota
-	StateTransaction
 )
 
 type Server struct {
 	Store             map[string]ValueStore
 	ListStore         map[string][]string
 	StreamStore       map[string][]StreamEntry
-	Commands          map[string]CommandHandler
-	WatchedKeys       map[string]bool // map stores watched key to a dirty flag(true if key has been modified)
+	Commands          map[string]Command
+	WatchedKeys       map[string]bool
+	ReplicaInfo       ReplicationInfo
+	ResyncCh          chan *Client
 	Mu                sync.RWMutex
 	WaiterQueueList   chan *Waiter
 	WaiterQueueStream chan *Waiter
 }
 
-type ValueStore struct {
-	Value  string
-	Expiry *time.Time
-}
-
-type Waiter struct {
-	Ch      chan struct{}
-	Expired atomic.Bool
-}
-
-type StreamEntry struct {
-	ID     string
-	Fields map[string]string
-}
-
-func NewServer() *Server {
+func NewServer(replicaInput string) *Server {
 	waiterQ := make(chan *Waiter, 100)
 	waiterQStream := make(chan *Waiter, 100)
+
+	var replInfo ReplicationInfo
+
+	if replicaInput == "" {
+		replInfo.Role = Master
+		replInfo.MasterReplID = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"
+		replInfo.MasterReplOffset = 0
+		replInfo.Replicas = make(map[*Client]bool)
+	} else {
+		replInfo.Role = Slave
+		parts := strings.Fields(replicaInput)
+		replInfo.MasterHost, replInfo.MasterPort = parts[0], parts[1]
+	}
 
 	s := &Server{
 		Store:             make(map[string]ValueStore),
 		ListStore:         make(map[string][]string),
 		StreamStore:       make(map[string][]StreamEntry),
+		Commands:          make(map[string]Command),
 		WatchedKeys:       make(map[string]bool),
+		ResyncCh:          make(chan *Client, 1),
+		ReplicaInfo:       replInfo,
 		WaiterQueueList:   waiterQ,
 		WaiterQueueStream: waiterQStream,
 	}
 
-	s.Commands = map[string]CommandHandler{
-		"ECHO":    s.echoHandler,
-		"PING":    s.pingHandler,
-		"SET":     s.setHandler,
-		"GET":     s.getHandler,
-		"RPUSH":   s.rPushHandler,
-		"LPUSH":   s.lPushHandler,
-		"LRANGE":  s.lRangeHandler,
-		"LLEN":    s.lLenHandler,
-		"LPOP":    s.lPopHandler,
-		"BLPOP":   s.bLPopHandler,
-		"TYPE":    s.typeHandler,
-		"XADD":    s.xaddHandler,
-		"XRANGE":  s.xRangeHandler,
-		"XREAD":   s.xReadHandler,
-		"INCR":    s.incrHandler,
-		"MULTI":   s.multiHandler,
-		"EXEC":    s.execHandler,
-		"DISCARD": s.discardHandler,
-		"WATCH":   s.watchHandler,
-		"UNWATCH": s.unwatchHandler,
-	}
+	s.Commands["ECHO"] = Command{Handler: s.echoHandler, Type: ReadCommand}
+	s.Commands["PING"] = Command{Handler: s.pingHandler, Type: ReadCommand}
+	s.Commands["SET"] = Command{Handler: s.setHandler, Type: WriteCommand}
+	s.Commands["GET"] = Command{Handler: s.getHandler, Type: ReadCommand}
+	s.Commands["RPUSH"] = Command{Handler: s.rPushHandler, Type: WriteCommand}
+	s.Commands["LPUSH"] = Command{Handler: s.lPushHandler, Type: WriteCommand}
+	s.Commands["LRANGE"] = Command{Handler: s.lRangeHandler, Type: ReadCommand}
+	s.Commands["LLEN"] = Command{Handler: s.lLenHandler, Type: ReadCommand}
+	s.Commands["LPOP"] = Command{Handler: s.lPopHandler, Type: WriteCommand}
+	s.Commands["BLPOP"] = Command{Handler: s.bLPopHandler, Type: WriteCommand}
+	s.Commands["TYPE"] = Command{Handler: s.typeHandler, Type: ReadCommand}
+	s.Commands["XADD"] = Command{Handler: s.xaddHandler, Type: ReadCommand}
+	s.Commands["XRANGE"] = Command{Handler: s.xRangeHandler, Type: ReadCommand}
+	s.Commands["XREAD"] = Command{Handler: s.xReadHandler, Type: ReadCommand}
+	s.Commands["INCR"] = Command{Handler: s.incrHandler, Type: WriteCommand}
+	s.Commands["MULTI"] = Command{Handler: s.multiHandler, Type: ReadCommand}
+	s.Commands["EXEC"] = Command{Handler: s.execHandler, Type: ReadCommand}
+	s.Commands["DISCARD"] = Command{Handler: s.discardHandler, Type: ReadCommand}
+	s.Commands["WATCH"] = Command{Handler: s.watchHandler, Type: ReadCommand}
+	s.Commands["UNWATCH"] = Command{Handler: s.unwatchHandler, Type: ReadCommand}
+	s.Commands["INFO"] = Command{Handler: s.infoHandler, Type: ReadCommand}
+	s.Commands["REPLCONF"] = Command{Handler: s.replConfHandler, Type: ReadCommand}
+	s.Commands["PSYNC"] = Command{Handler: s.psyncHandler, Type: ReadCommand}
+
+	go func() {
+		s.emptyRDBTransfer()
+	}()
 
 	return s
-}
-
-// HandleConn reads RESP requests off the connection, dispatches each to the
-// registered command handler, and writes the response back.
-func (s *Server) HandleConn(conn net.Conn) {
-	defer conn.Close()
-
-	clientCtx := &Client{ClientState: StateNormal}
-
-	buf := make([]byte, 4096)
-	for {
-		n, err := conn.Read(buf)
-		if err != nil {
-			if !errors.Is(err, io.EOF) {
-				fmt.Println("read error:", err)
-			}
-			return
-		}
-
-		args, err := parser.Parse(buf[:n])
-		if err != nil {
-			writeErr(conn, err)
-			continue
-		}
-		if len(args) == 0 {
-			continue
-		}
-
-		name := strings.ToUpper(args[0])
-		handler, ok := s.Commands[name]
-		if !ok {
-			writeErr(conn, fmt.Errorf("unknown command %q", name))
-			continue
-		}
-
-		if isTxCommand(name) && clientCtx.ClientState == StateTransaction {
-			resp, err := handler(clientCtx, Command{
-				Handler: handler,
-				Args:    args[1:],
-			})
-			if err != nil {
-				writeErr(conn, err)
-				continue
-			}
-
-			if _, err := conn.Write([]byte(resp)); err != nil {
-				return
-			}
-
-			continue
-		}
-
-		if clientCtx.ClientState == StateTransaction {
-			clientCtx.TxQueue = append(clientCtx.TxQueue, Command{
-				Handler: handler,
-				Args:    args[1:],
-			})
-			if _, err := conn.Write([]byte(parser.BulkStringOutputParser("QUEUED"))); err != nil {
-				return
-			}
-			continue
-		}
-
-		resp, err := handler(clientCtx, Command{
-			Handler: handler,
-			Args:    args[1:],
-		})
-		if err != nil {
-			writeErr(conn, err)
-			continue
-		}
-
-		if _, err := conn.Write([]byte(resp)); err != nil {
-			return
-		}
-	}
-}
-
-func writeErr(conn net.Conn, err error) {
-	_, _ = conn.Write([]byte(fmt.Sprintf("-ERR %s\r\n", err.Error())))
-}
-
-func isTxCommand(cmdName string) bool {
-	return cmdName == "EXEC" || cmdName == "DISCARD" || cmdName == "WATCH" ||
-		cmdName == "MULTI" || cmdName == "UNWATCH"
 }

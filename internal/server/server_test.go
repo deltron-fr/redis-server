@@ -9,16 +9,16 @@ import (
 )
 
 func newTestServer() *Server {
-	return NewServer()
+	return NewServer("")
 }
 
 func run(t *testing.T, s *Server, name string, args ...string) (string, error) {
 	t.Helper()
-	handler, ok := s.Commands[name]
+	command, ok := s.Commands[name]
 	if !ok {
 		t.Fatalf("unknown command %q", name)
 	}
-	return handler(&Client{}, Command{Args: args})
+	return command.Handler(&Client{}, Command{Args: args})
 }
 
 func mustRun(t *testing.T, s *Server, name string, args ...string) string {
@@ -46,18 +46,18 @@ func runWithClient(t *testing.T, s *Server, client *Client, name string, args ..
 
 func runWithClientErr(t *testing.T, s *Server, client *Client, name string, args ...string) (string, error) {
 	t.Helper()
-	handler, ok := s.Commands[name]
+	command, ok := s.Commands[name]
 	if !ok {
 		t.Fatalf("unknown command %q", name)
 	}
 	if client.ClientState == StateTransaction && !testIsTxCommand(name) {
 		client.TxQueue = append(client.TxQueue, Command{
-			Handler: handler,
+			Handler: command.Handler,
 			Args:    args,
 		})
 		return parser.BulkStringOutputParser("QUEUED"), nil
 	}
-	return handler(client, Command{Args: args})
+	return command.Handler(client, Command{Args: args})
 }
 
 // ── SET / GET ──────────────────────────────────────────────────────────

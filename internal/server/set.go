@@ -11,6 +11,7 @@ import (
 // setHandler processes the SET command. It supports setting a key with a value,
 // and optionally with an expiry time specified in seconds (EX) or milliseconds (PX).
 func (s *Server) setHandler(clientCtx *Client, cmd Command) (string, error) {
+	fmt.Println("received SET command")
 	if len(cmd.Args) != 2 && len(cmd.Args) != 4 {
 		return "", fmt.Errorf("SET command requires exactly two or four arguments")
 	}

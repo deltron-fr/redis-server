@@ -40,3 +40,13 @@ func ArrayInputParser(data string) ([]string, error) {
 
 	return result, nil
 }
+
+func ArrayOutputParser(data []string) string {
+	var result strings.Builder
+	for _, str := range data {
+		output := BulkStringOutputParser(str)
+		result.WriteString(output)
+	}
+
+	return fmt.Sprintf("*%d\r\n%s", len(data), result.String())
+}
